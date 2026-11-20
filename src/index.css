@@ -169,7 +169,6 @@
   --ring: #FF5A1F;
   --radius: 0.75rem;
   --ghost: #E4E4E7;
-  --glow: rgb(255 90 31 / 0.16);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -188,7 +187,6 @@
     --border: #27272A;
     --input: #27272A;
     --ghost: #27272A;
-    --glow: rgb(255 90 31 / 0.22);
   }
 }
 body { background: var(--background); }

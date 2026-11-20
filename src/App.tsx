@@ -139,8 +139,6 @@ export default function App() {
 
   return (
     <div className="relative min-h-dvh overflow-x-clip">
-      {/* soft accent glow behind the composer */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(60%_60%_at_50%_0%,var(--glow),transparent)]" />
 
       <header className="relative mx-auto flex max-w-2xl items-center gap-2 px-4 pt-6">
         <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
