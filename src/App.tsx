@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowDownToLine, ClipboardPaste, Music, Video, X } from "lucide-react"
+import { ArrowDownToLine, ClipboardPaste, Music, RotateCw, Trash2, Video, X } from "lucide-react"
 import { siInstagram, siSoundcloud, siTiktok, siTwitch, siVimeo, siX, siYoutube } from "simple-icons"
 import { toast } from "sonner"
 import { BorderBeam } from "@/components/ui/border-beam"
@@ -29,6 +29,27 @@ function fmtDuration(s?: number) {
   return `${h ? `${h}:${String(m).padStart(2, "0")}` : m}:${String(sec).padStart(2, "0")}`
 }
 
+// History lives in this browser only (files themselves are deleted from the server after download).
+type Entry = { url: string; format: Format; quality: string; title: string; thumbnail?: string; site?: string; at: number }
+const HISTORY_KEY = "aspire:history"
+const HISTORY_MAX = 50
+
+function loadHistory(): Entry[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]") } catch { return [] }
+}
+function saveHistory(h: Entry[]) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h)) } catch { /* private mode: history just won't persist */ }
+}
+
+const rtf = new Intl.RelativeTimeFormat("fr", { numeric: "auto" })
+function ago(t: number) {
+  const s = (t - Date.now()) / 1000
+  for (const [unit, sec] of [["day", 86400], ["hour", 3600], ["minute", 60]] as const) {
+    if (Math.abs(s) >= sec) return rtf.format(Math.round(s / sec), unit)
+  }
+  return "à l’instant"
+}
+
 export default function App() {
   const [url, setUrl] = useState("")
   const [format, setFormat] = useState<Format>("mp4")
@@ -36,7 +57,13 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(0)
   const [preview, setPreview] = useState<Preview>({ state: "idle" })
+  const [history, setHistory] = useState<Entry[]>(loadHistory)
   const es = useRef<EventSource | null>(null)
+
+  function updateHistory(next: Entry[]) {
+    setHistory(next)
+    saveHistory(next)
+  }
 
   // Fetch title + thumbnail as soon as a link is pasted, so people see they have the right video.
   useEffect(() => {
@@ -65,23 +92,37 @@ export default function App() {
     setBusy(false)
   }
 
-  function start(e: React.FormEvent) {
-    e.preventDefault()
-    if (!url.trim() || busy) return
+  function run(link: string, fmt: Format, q: string, known?: Info) {
+    if (!link || busy) return
     setBusy(true); setProgress(0)
-    const source = new EventSource(`/api/job?${new URLSearchParams({ url: url.trim(), format, quality })}`)
+    let title = known?.title ?? link
+    const source = new EventSource(`/api/job?${new URLSearchParams({ url: link, format: fmt, quality: q })}`)
     es.current = source
+    source.addEventListener("title", (ev) => { title = JSON.parse(ev.data) })
     source.addEventListener("progress", (ev) => setProgress(JSON.parse(ev.data)))
     source.addEventListener("done", (ev) => {
       stop()
       location.assign(`/api/file/${JSON.parse(ev.data)}`) // attachment header → browser saves it
       toast.success("Fichier téléchargé")
+      const entry: Entry = { url: link, format: fmt, quality: q, title, thumbnail: known?.thumbnail, site: known?.extractor_key, at: Date.now() }
+      updateHistory([entry, ...loadHistory().filter((h) => !(h.url === link && h.format === fmt))].slice(0, HISTORY_MAX))
     })
     source.addEventListener("error", (ev) => {
       const msg = (ev as MessageEvent).data
       stop()
       toast.error(msg ? JSON.parse(msg) : "Le serveur ne répond plus. Vérifie qu’il tourne, puis réessaie.")
     })
+  }
+
+  function start(e: React.FormEvent) {
+    e.preventDefault()
+    run(url.trim(), format, quality, preview.state === "ready" ? preview.info : undefined)
+  }
+
+  function again(h: Entry) {
+    setUrl(h.url); setFormat(h.format); setQuality(h.quality)
+    run(h.url, h.format, h.quality, { title: h.title, thumbnail: h.thumbnail, extractor_key: h.site })
+    window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
   async function paste() {
@@ -220,6 +261,45 @@ export default function App() {
           </div>
         </div>
       </form>
+
+      {history.length > 0 && (
+        <section aria-labelledby="history-title" className="mt-16">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 id="history-title" className="font-heading text-2xl font-bold tracking-tight">Déjà téléchargés</h2>
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => updateHistory([])}>
+              Tout effacer
+            </Button>
+          </div>
+          <ul className="mt-4 divide-y divide-border">
+            {history.map((h) => (
+              <li key={`${h.url}-${h.format}`} className="flex items-center gap-3 py-3 sm:gap-4">
+                <div className="aspect-video w-20 shrink-0 overflow-hidden rounded-lg bg-[var(--ghost)] sm:w-24">
+                  {h.thumbnail && <img src={h.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" className="size-full object-cover" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <a href={h.url} target="_blank" rel="noreferrer" className="line-clamp-1 font-medium hover:underline">{h.title}</a>
+                  <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="rounded-md bg-secondary px-1.5 py-px text-xs font-semibold text-foreground">
+                      {h.format === "mp3" ? "MP3" : `MP4 ${qLabel(h.quality)}`}
+                    </span>
+                    <span className="truncate">{ago(h.at)}</span>
+                  </p>
+                </div>
+                <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => again(h)} disabled={busy} aria-label={`Retélécharger ${h.title}`} title="Retélécharger">
+                  <RotateCw />
+                </Button>
+                <Button
+                  variant="ghost" size="icon" className="shrink-0 rounded-full text-muted-foreground"
+                  onClick={() => updateHistory(history.filter((x) => x !== h))}
+                  aria-label={`Retirer ${h.title} de l’historique`} title="Retirer"
+                >
+                  <Trash2 />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <footer className="mt-auto pt-16 text-sm text-muted-foreground">
         <p className="max-w-xl">Pour un usage personnel : respecte les droits des auteurs et les conditions des plateformes.</p>
