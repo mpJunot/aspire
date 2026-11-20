@@ -26,6 +26,7 @@ Variables : `ADDR` (défaut `127.0.0.1:8787`), `DIST` (défaut `dist`).
 
 ## API
 
+- `GET /api/info?url=…` → aperçu JSON (titre, miniature, durée, auteur, site)
 - `GET /api/job?url=…&format=mp3|mp4&quality=360…2160` → flux SSE : `title`, `progress`, `done` (id) ou `error`
 - `GET /api/file/{id}` → le fichier, une seule fois (supprimé ensuite ; expiré après 10 min sinon)
 

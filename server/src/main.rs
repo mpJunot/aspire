@@ -107,6 +107,32 @@ fn ev(name: &str, data: impl serde_json_lite::Json) -> Result<Event, Infallible>
     Ok(Event::default().event(name).data(data.json()))
 }
 
+/// Preview metadata: {title, thumbnail, duration, uploader, extractor_key}, straight from yt-dlp's JSON.
+async fn info(Query(q): Query<JobQuery>) -> Response {
+    let job = match validate(&JobQuery { format: Some("mp3".into()), ..q }) {
+        Ok(j) => j,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
+    let run = Command::new("yt-dlp")
+        .args(["--no-playlist", "--skip-download", "--no-warnings", "-O"])
+        .arg("%(.{title,thumbnail,duration,uploader,extractor_key})j")
+        .args(["--", &job.url])
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(Duration::from_secs(30), run).await {
+        Ok(Ok(out)) if out.status.success() => {
+            ([(header::CONTENT_TYPE, "application/json")], out.stdout).into_response()
+        }
+        Ok(Ok(out)) => {
+            let err = String::from_utf8_lossy(&out.stderr);
+            let msg = err.lines().filter_map(|l| l.strip_prefix("ERROR: ")).last().unwrap_or("Lien non reconnu");
+            (StatusCode::UNPROCESSABLE_ENTITY, msg.to_string()).into_response()
+        }
+        _ => (StatusCode::GATEWAY_TIMEOUT, "Le site met trop de temps à répondre").into_response(),
+    }
+}
+
 async fn job(State(app): State<Shared>, Query(q): Query<JobQuery>) -> impl IntoResponse {
     let (tx, rx) = mpsc::channel(64);
     tokio::spawn(async move {
@@ -267,6 +293,7 @@ async fn main() {
     let dist = std::env::var("DIST").unwrap_or_else(|_| "dist".into());
     let addr = std::env::var("ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into()); // local only by default
     let app = Router::new()
+        .route("/api/info", get(info))
         .route("/api/job", get(job))
         .route("/api/file/{id}", get(file))
         .fallback_service(ServeDir::new(&dist).fallback(ServeFile::new(format!("{dist}/index.html"))))
