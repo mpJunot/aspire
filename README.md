@@ -20,7 +20,7 @@ pnpm install
 pnpm start            # build du front + serveur sur http://127.0.0.1:8787
 ```
 
-Dev avec hot reload : `pnpm server` dans un terminal, `pnpm dev` dans l'autre (Vite proxie `/api`).
+Dev avec hot reload : `pnpm api` dans un terminal, `pnpm dev` dans l'autre (Vite proxie `/api`).
 
 Variables : `ADDR` (défaut `127.0.0.1:8787`), `DIST` (défaut `dist`).
 

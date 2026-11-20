@@ -8,8 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "server": "cargo run --release --manifest-path server/Cargo.toml",
-    "start": "pnpm build && pnpm server"
+    "start": "pnpm build && pnpm api",
+    "api": "cargo run --release --manifest-path server/Cargo.toml"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
