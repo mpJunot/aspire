@@ -16,11 +16,11 @@ brew install yt-dlp ffmpeg deno rustup && rustup default stable
 ## Lancer
 
 ```sh
-npm install
-npm start            # build du front + serveur sur http://127.0.0.1:8787
+pnpm install
+pnpm start            # build du front + serveur sur http://127.0.0.1:8787
 ```
 
-Dev avec hot reload : `npm run server` dans un terminal, `npm run dev` dans l'autre (Vite proxie `/api`).
+Dev avec hot reload : `pnpm server` dans un terminal, `pnpm dev` dans l'autre (Vite proxie `/api`).
 
 Variables : `ADDR` (défaut `127.0.0.1:8787`), `DIST` (défaut `dist`).
 
