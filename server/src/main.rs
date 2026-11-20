@@ -32,7 +32,11 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
-use tower_http::services::{ServeDir, ServeFile};
+use axum::http::{HeaderValue, Method};
+use tower_http::{
+    cors::CorsLayer,
+    services::{ServeDir, ServeFile},
+};
 
 const QUALITIES: [&str; 6] = ["360", "480", "720", "1080", "1440", "2160"];
 const MAX_JOBS: usize = 3; // ponytail: global cap, per-IP queue if this ever goes public
@@ -301,10 +305,18 @@ mod serde_json_lite {
 async fn main() {
     let dist = std::env::var("DIST").unwrap_or_else(|_| "dist".into());
     let addr = std::env::var("ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into()); // local only by default
+    // Only the hosted front (GitHub Pages) may call this local API from the browser; other sites can't read it.
+    let origin = std::env::var("ALLOWED_ORIGIN").unwrap_or_else(|_| "https://mpjunot.github.io".into());
+    let cors = CorsLayer::new()
+        .allow_origin(origin.parse::<HeaderValue>().expect("ALLOWED_ORIGIN invalide"))
+        .allow_methods([Method::GET])
+        .allow_private_network(true); // Chrome: lets a public https page reach 127.0.0.1
     let app = Router::new()
+        .route("/api/health", get(|| async { "ok" }))
         .route("/api/info", get(info))
         .route("/api/job", get(job))
         .route("/api/file/{id}", get(file))
+        .layer(cors)
         .fallback_service(ServeDir::new(&dist).fallback(ServeFile::new(format!("{dist}/index.html"))))
         .with_state(Shared::default());
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("port occupé ?");

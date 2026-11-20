@@ -24,7 +24,16 @@ Dev avec hot reload : `pnpm api` dans un terminal, `pnpm dev` dans l'autre (Vite
 
 Variables : `ADDR` (défaut `127.0.0.1:8787`), `DIST` (défaut `dist`).
 
+## En ligne (GitHub Pages)
+
+L'interface est publiée sur https://mpjunot.github.io/aspire/ à chaque push sur `master`.
+Elle parle au serveur qui tourne **sur ta machine** : lance `pnpm api` et garde-le ouvert.
+Le serveur n'accepte que cette origine (`ALLOWED_ORIGIN`, défaut `https://mpjunot.github.io`).
+Chrome peut demander l'autorisation d'accéder au réseau local : accepte-la.
+
 ## API
+
+- `GET /api/health` → `ok` si le serveur tourne
 
 - `GET /api/info?url=…` → aperçu JSON (titre, miniature, durée, auteur, site)
 - `GET /api/job?url=…&format=mp3|mp4&quality=360…2160` → flux SSE : `title`, `progress`, `done` (id) ou `error`

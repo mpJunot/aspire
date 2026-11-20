@@ -7,6 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Toaster } from "@/components/ui/sonner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+// Same origin when served by the Rust server; the GitHub Pages build points at the server on this Mac.
+const API = import.meta.env.VITE_API ?? ""
+
 type Format = "mp4" | "mp3"
 type Info = { title: string; thumbnail?: string; duration?: number; uploader?: string; extractor_key?: string }
 type Preview = { state: "idle" } | { state: "loading" } | { state: "ready"; info: Info } | { state: "error"; msg: string }
@@ -62,7 +65,16 @@ export default function App() {
   const [progress, setProgress] = useState(0)
   const [preview, setPreview] = useState<Preview>({ state: "idle" })
   const [history, setHistory] = useState<Entry[]>(loadHistory)
+  const [online, setOnline] = useState(true)
   const es = useRef<EventSource | null>(null)
+
+  // Tell people right away when the local server isn't running (the Pages site can't download on its own).
+  useEffect(() => {
+    const check = () => fetch(`${API}/api/health`).then((r) => setOnline(r.ok), () => setOnline(false))
+    check()
+    const id = setInterval(check, 5000)
+    return () => clearInterval(id)
+  }, [])
 
   function updateHistory(next: Entry[]) {
     setHistory(next)
@@ -77,7 +89,7 @@ export default function App() {
     const t = setTimeout(async () => {
       setPreview({ state: "loading" })
       try {
-        const res = await fetch(`/api/info?${new URLSearchParams({ url: link })}`, { signal: ctrl.signal })
+        const res = await fetch(`${API}/api/info?${new URLSearchParams({ url: link })}`, { signal: ctrl.signal })
         if (!res.ok) {
           const msg = await res.text()
           return setPreview({ state: "error", msg: msg.startsWith("Unsupported URL") ? "Ce site n’est pas pris en charge." : msg })
@@ -100,13 +112,13 @@ export default function App() {
     if (!link || busy) return
     setBusy(true); setProgress(0)
     let title = known?.title ?? link
-    const source = new EventSource(`/api/job?${new URLSearchParams({ url: link, format: fmt, quality: q })}`)
+    const source = new EventSource(`${API}/api/job?${new URLSearchParams({ url: link, format: fmt, quality: q })}`)
     es.current = source
     source.addEventListener("title", (ev) => { title = JSON.parse(ev.data) })
     source.addEventListener("progress", (ev) => setProgress(JSON.parse(ev.data)))
     source.addEventListener("done", (ev) => {
       stop()
-      location.assign(`/api/file/${JSON.parse(ev.data)}`) // attachment header → browser saves it
+      location.assign(`${API}/api/file/${JSON.parse(ev.data)}`) // attachment header → browser saves it
       toast.success("Fichier téléchargé", { description: title })
       const entry: Entry = { url: link, format: fmt, quality: q, title, thumbnail: known?.thumbnail, site: known?.extractor_key, at: Date.now() }
       updateHistory([entry, ...loadHistory().filter((h) => !(h.url === link && h.format === fmt))].slice(0, HISTORY_MAX))
@@ -154,6 +166,18 @@ export default function App() {
             Colle un lien, choisis vidéo ou audio, c’est tout. Pas de pub, pas de compte.
           </p>
         </div>
+
+        {!online && (
+          <div role="status" className="mt-10 flex items-start gap-3 rounded-xl border bg-card p-4 text-sm">
+            <span className="mt-1.5 size-2 shrink-0 rounded-full bg-destructive" />
+            <div>
+              <p className="font-medium">Le serveur aspire n’est pas lancé sur cet ordinateur</p>
+              <p className="mt-1 text-muted-foreground">
+                Ouvre un terminal dans le dossier aspire et lance <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">pnpm api</code>. Cette page se reconnecte toute seule.
+              </p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={start} className="mt-10 flex flex-col gap-2 rounded-2xl border bg-card p-2 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_32px_-8px_rgb(0_0_0/0.12)]">
           {/* Step 1: the link */}

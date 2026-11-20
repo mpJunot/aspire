@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  base: process.env.PAGES_BASE ?? '/', // GitHub Pages serves the site under /aspire/
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   server: { proxy: { '/api': 'http://localhost:8787' } },
