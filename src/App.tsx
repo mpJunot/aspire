@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { ArrowDownToLine, ClipboardPaste, Music, RotateCw, Trash2, Video, X } from "lucide-react"
+import { ArrowDownToLine, ClipboardPaste, Link2, Loader2, Music, RotateCw, Trash2, Video, X } from "lucide-react"
 import { siInstagram, siSoundcloud, siTiktok, siTwitch, siVimeo, siX, siYoutube } from "simple-icons"
 import { toast } from "sonner"
-import { BorderBeam } from "@/components/ui/border-beam"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toaster } from "@/components/ui/sonner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -12,12 +11,9 @@ type Format = "mp4" | "mp3"
 type Info = { title: string; thumbnail?: string; duration?: number; uploader?: string; extractor_key?: string }
 type Preview = { state: "idle" } | { state: "loading" } | { state: "ready"; info: Info } | { state: "error"; msg: string }
 
-const QUALITIES = ["2160", "1440", "1080", "720", "480", "360"]
-const qLabel = (q: string) => (q === "2160" ? "4K" : `${q}p`)
+const QUALITIES = ["2160", "1440", "1080", "720", "480", "360"].map((v) => ({ value: v, label: v === "2160" ? "4K" : `${v}p` }))
+const qLabel = (q: string) => QUALITIES.find((x) => x.value === q)?.label ?? q
 const PLATFORMS = [siYoutube, siTiktok, siInstagram, siX, siSoundcloud, siVimeo, siTwitch]
-
-const segList = "h-12 group-data-horizontal/tabs:h-12 rounded-full bg-secondary p-1"
-const segTab = "h-full rounded-full px-4 text-[0.95rem] data-active:bg-foreground data-active:text-background data-active:shadow-none"
 
 function isUrl(s: string) {
   try { return /^https?:$/.test(new URL(s).protocol) } catch { return false }
@@ -48,6 +44,14 @@ function ago(t: number) {
     if (Math.abs(s) >= sec) return rtf.format(Math.round(s / sec), unit)
   }
   return "à l’instant"
+}
+
+function Thumb({ src, className = "" }: { src?: string; className?: string }) {
+  return (
+    <div className={`relative aspect-video shrink-0 overflow-hidden rounded-lg bg-muted ${className}`}>
+      {src && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" className="size-full object-cover" />}
+    </div>
+  )
 }
 
 export default function App() {
@@ -103,7 +107,7 @@ export default function App() {
     source.addEventListener("done", (ev) => {
       stop()
       location.assign(`/api/file/${JSON.parse(ev.data)}`) // attachment header → browser saves it
-      toast.success("Fichier téléchargé")
+      toast.success("Fichier téléchargé", { description: title })
       const entry: Entry = { url: link, format: fmt, quality: q, title, thumbnail: known?.thumbnail, site: known?.extractor_key, at: Date.now() }
       updateHistory([entry, ...loadHistory().filter((h) => !(h.url === link && h.format === fmt))].slice(0, HISTORY_MAX))
     })
@@ -130,181 +134,194 @@ export default function App() {
     catch { toast.error("Le navigateur bloque le presse-papier. Colle le lien avec ⌘V.") }
   }
 
-  const status = !busy ? null : progress >= 100 ? "Conversion en cours…" : progress > 0 ? `${progress.toFixed(0)} %` : "Démarrage…"
+  const cta = format === "mp3" ? "Télécharger le MP3" : `Télécharger en ${qLabel(quality)}`
+  const status = progress >= 100 ? "Conversion…" : progress > 0 ? `${progress.toFixed(0)} %` : "Préparation…"
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-5xl flex-col px-4 py-8 sm:px-8 sm:py-12">
-      {/* The word is the progress bar: it fills with tangerine and inhales (tightens) while working. */}
-      <h1
-        aria-label="aspire"
-        className="relative select-none font-heading text-[clamp(5.5rem,24vw,17rem)] leading-[0.85] font-extrabold tracking-[-0.02em] [font-stretch:80%] [font-variation-settings:'opsz'_96] motion-safe:transition-[letter-spacing] motion-safe:duration-700 data-[busy=true]:tracking-[-0.05em]"
-        data-busy={busy}
-      >
-        <span aria-hidden className={busy ? "text-[var(--ghost)]" : ""}>aspire</span>
-        <span
-          aria-hidden
-          className="absolute inset-0 text-primary motion-safe:transition-[clip-path] motion-safe:duration-300"
-          style={{ clipPath: `inset(0 ${busy ? 100 - progress : 100}% 0 0)` }}
-        >
-          aspire
+    <div className="relative min-h-dvh overflow-x-clip">
+      {/* soft accent glow behind the composer */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(60%_60%_at_50%_0%,var(--glow),transparent)]" />
+
+      <header className="relative mx-auto flex max-w-2xl items-center gap-2 px-4 pt-6">
+        <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <ArrowDownToLine className="size-4" strokeWidth={2.5} />
         </span>
-      </h1>
+        <span className="text-lg font-semibold tracking-tight">aspire</span>
+      </header>
 
-      <p className="mt-8 max-w-md text-lg text-muted-foreground sm:text-xl">
-        Colle un lien, garde le fichier. Vidéo en MP4 jusqu’à la 4K, ou juste le son en MP3.
-      </p>
-
-      <form onSubmit={start} className="mt-10 space-y-5">
-        <div className="relative flex items-center gap-2 overflow-hidden rounded-[1.75rem] border-2 border-foreground bg-card p-2 focus-within:ring-4 focus-within:ring-primary/40">
-          <Input
-            type="url"
-            required
-            autoFocus
-            aria-label="Lien de la vidéo"
-            placeholder="https://youtube.com/watch?v=…"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={busy}
-            className="h-14 border-0 bg-transparent px-4 text-lg shadow-none focus-visible:ring-0 disabled:bg-transparent md:text-xl dark:bg-transparent"
-          />
-          {url && !busy ? (
-            <Button type="button" variant="ghost" size="icon" className="size-12 shrink-0 rounded-full" onClick={() => setUrl("")} aria-label="Effacer le lien">
-              <X />
-            </Button>
-          ) : (
-            <Button type="button" variant="ghost" className="h-12 shrink-0 rounded-full px-4" onClick={paste} disabled={busy}>
-              <ClipboardPaste /> <span className="max-sm:sr-only">Coller</span>
-            </Button>
-          )}
-          {busy && <BorderBeam size={160} duration={4} colorFrom="#FF5A1F" colorTo="#FFB38F" borderWidth={2} />}
+      <main className="relative mx-auto max-w-2xl px-4 pt-16 pb-16 sm:pt-24">
+        <div className="text-center">
+          <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Télécharge n’importe quelle vidéo</h1>
+          <p className="mx-auto mt-4 max-w-md text-base text-muted-foreground text-pretty sm:text-lg">
+            Colle un lien, choisis vidéo ou audio, c’est tout. Pas de pub, pas de compte.
+          </p>
         </div>
 
-        {preview.state === "idle" ? (
-          <ul aria-label="Sites compatibles" className="flex flex-wrap items-center gap-x-5 gap-y-2 px-2 text-muted-foreground">
-            {PLATFORMS.map((p) => (
-              <li key={p.slug}>
-                <svg viewBox="0 0 24 24" role="img" aria-label={p.title} className="size-5 fill-current"><title>{p.title}</title><path d={p.path} /></svg>
-              </li>
-            ))}
-            <li className="text-sm">et plus de mille autres sites</li>
-          </ul>
-        ) : (
-          <div aria-live="polite" className="flex items-center gap-4 rounded-2xl bg-secondary p-3 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1">
-            {preview.state !== "error" && <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-xl bg-[var(--ghost)] sm:w-44">
-              {preview.state === "ready" && preview.info.thumbnail && (
-                <img src={preview.info.thumbnail} alt="" referrerPolicy="no-referrer" className="size-full object-cover" />
+        <form onSubmit={start} className="mt-10 flex flex-col gap-2 rounded-2xl border bg-card p-2 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_32px_-8px_rgb(0_0_0/0.12)]">
+          {/* Step 1: the link */}
+          <div className="max-sm:contents sm:flex sm:gap-2">
+            <label className="flex h-12 min-w-0 items-center sm:flex-1 gap-2 rounded-xl bg-muted px-3 focus-within:ring-2 focus-within:ring-ring">
+              <Link2 className="size-4 shrink-0 text-muted-foreground" />
+              <input
+                type="url"
+                required
+                autoFocus
+                aria-label="Lien de la vidéo"
+                placeholder="Colle un lien YouTube, TikTok, Instagram…"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                disabled={busy}
+                className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:opacity-60"
+              />
+              {url && !busy ? (
+                <button type="button" onClick={() => setUrl("")} aria-label="Effacer le lien" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground">
+                  <X className="size-4" />
+                </button>
+              ) : (
+                <button type="button" onClick={paste} disabled={busy} className="flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50">
+                  <ClipboardPaste className="size-4" /> Coller
+                </button>
               )}
-              {preview.state === "ready" && fmtDuration(preview.info.duration) && (
-                <span className="absolute right-1.5 bottom-1.5 rounded-md bg-foreground/85 px-1.5 py-0.5 text-xs font-medium text-background tabular-nums">
-                  {fmtDuration(preview.info.duration)}
-                </span>
-              )}
-            </div>}
-            <div className="min-w-0 flex-1 px-1">
-              {preview.state === "loading" && (
-                <div className="space-y-2 motion-safe:animate-pulse">
-                  <div className="h-4 w-3/4 rounded bg-[var(--ghost)]" />
-                  <div className="h-3 w-1/3 rounded bg-[var(--ghost)]" />
-                </div>
-              )}
-              {preview.state === "ready" && (
-                <>
-                  <p className="line-clamp-2 font-medium leading-snug">{preview.info.title}</p>
-                  <p className="mt-1 truncate text-sm text-muted-foreground">
-                    {[preview.info.uploader, preview.info.extractor_key].filter(Boolean).join(", ")}
-                  </p>
-                  {status && <p className="mt-1 text-sm font-medium text-primary tabular-nums">{status}</p>}
-                </>
-              )}
-              {preview.state === "error" && (
-                <>
-                  <p className="font-medium">Aucune vidéo trouvée à ce lien.</p>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{preview.msg}</p>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Tabs value={format} onValueChange={(v) => setFormat(v as Format)}>
-            <TabsList className={segList}>
-              <TabsTrigger value="mp4" disabled={busy} className={segTab}><Video /> Vidéo</TabsTrigger>
-              <TabsTrigger value="mp3" disabled={busy} className={segTab}><Music /> Audio</TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          {format === "mp4" && (
-            <Tabs value={quality} onValueChange={(v) => setQuality(v as string)} aria-label="Qualité maximale" className="max-w-full">
-              <TabsList className={`${segList} max-w-full justify-start overflow-x-auto`}>
-                {QUALITIES.map((q) => (
-                  <TabsTrigger key={q} value={q} disabled={busy} className={`${segTab} px-3 tabular-nums`}>{qLabel(q)}</TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          )}
-
-          <div className="w-full sm:ml-auto sm:w-auto">
-            {busy ? (
-              <Button type="button" variant="secondary" onClick={stop} className="h-14 w-full rounded-full px-7 text-base sm:w-auto">
-                <X /> Annuler
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                disabled={preview.state === "error"}
-                className="h-14 w-full rounded-full px-8 text-base font-semibold hover:bg-primary/90 active:scale-[0.97] sm:w-auto"
-              >
-                <ArrowDownToLine className="size-5" /> Télécharger
+            </label>
+            {!busy && (
+              <Button type="submit" disabled={preview.state === "error" || preview.state === "loading"} className="h-12 rounded-xl px-5 text-base font-semibold max-sm:order-last">
+                {preview.state === "loading" ? <Loader2 className="animate-spin" /> : <ArrowDownToLine />}
+                {preview.state === "ready" ? cta : "Télécharger"}
               </Button>
             )}
           </div>
+
+          {/* Step 2: what you're getting, and how */}
+          {preview.state !== "idle" && (
+            <div className="rounded-xl border p-3 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1">
+              {preview.state === "error" ? (
+                <div className="flex items-start gap-3 px-1">
+                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-destructive" />
+                  <div>
+                    <p className="font-medium">Aucune vidéo trouvée à ce lien</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{preview.msg}</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="relative">
+                      <Thumb src={preview.state === "ready" ? preview.info.thumbnail : undefined} className={`w-28 sm:w-32 ${preview.state === "loading" ? "motion-safe:animate-pulse" : ""}`} />
+                      {preview.state === "ready" && fmtDuration(preview.info.duration) && (
+                        <span className="absolute right-1 bottom-1 rounded bg-black/75 px-1 text-[11px] font-medium text-white tabular-nums">
+                          {fmtDuration(preview.info.duration)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {preview.state === "loading" ? (
+                        <div className="space-y-2 motion-safe:animate-pulse">
+                          <div className="h-4 w-4/5 rounded bg-muted" />
+                          <div className="h-3 w-2/5 rounded bg-muted" />
+                        </div>
+                      ) : (
+                        <>
+                          <p className="line-clamp-2 leading-snug font-medium">{preview.info.title}</p>
+                          <p className="mt-1 truncate text-sm text-muted-foreground">
+                            {[preview.info.uploader, preview.info.extractor_key].filter(Boolean).join(", ")}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {busy ? (
+                    <div className="mt-3" aria-live="polite">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium tabular-nums">{status}</span>
+                        <Button type="button" variant="ghost" size="sm" onClick={stop} className="text-muted-foreground">
+                          <X /> Annuler
+                        </Button>
+                      </div>
+                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={`h-full rounded-full bg-primary motion-safe:transition-[width] motion-safe:duration-300 ${progress >= 100 ? "motion-safe:animate-pulse" : ""}`}
+                          style={{ width: `${Math.max(progress, 3)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Tabs value={format} onValueChange={(v) => setFormat(v as Format)}>
+                        <TabsList className="h-9 group-data-horizontal/tabs:h-9">
+                          <TabsTrigger value="mp4" className="px-3"><Video /> Vidéo</TabsTrigger>
+                          <TabsTrigger value="mp3" className="px-3"><Music /> Audio</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                      {format === "mp4" ? (
+                        <Select items={QUALITIES} value={quality} onValueChange={(v) => v && setQuality(v)}>
+                          <SelectTrigger className="h-9 data-[size=default]:h-9" aria-label="Qualité maximale">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {QUALITIES.map((q) => <SelectItem key={q.value} value={q.value}>{q.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">MP3, meilleure qualité disponible</span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </form>
+
+        {/* Supported sites */}
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-muted-foreground">
+          {PLATFORMS.map((p) => (
+            <svg key={p.slug} viewBox="0 0 24 24" role="img" aria-label={p.title} className="size-4 fill-current opacity-70">
+              <title>{p.title}</title>
+              <path d={p.path} />
+            </svg>
+          ))}
+          <span className="text-xs">et 1000+ autres sites</span>
         </div>
-      </form>
 
-      {history.length > 0 && (
-        <section aria-labelledby="history-title" className="mt-16">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 id="history-title" className="font-heading text-2xl font-bold tracking-tight">Déjà téléchargés</h2>
-            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => updateHistory([])}>
-              Tout effacer
-            </Button>
-          </div>
-          <ul className="mt-4 divide-y divide-border">
-            {history.map((h) => (
-              <li key={`${h.url}-${h.format}`} className="flex items-center gap-3 py-3 sm:gap-4">
-                <div className="aspect-video w-20 shrink-0 overflow-hidden rounded-lg bg-[var(--ghost)] sm:w-24">
-                  {h.thumbnail && <img src={h.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" className="size-full object-cover" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <a href={h.url} target="_blank" rel="noreferrer" className="line-clamp-1 font-medium hover:underline">{h.title}</a>
-                  <p className="mt-0.5 flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="rounded-md bg-secondary px-1.5 py-px text-xs font-semibold text-foreground">
-                      {h.format === "mp3" ? "MP3" : `MP4 ${qLabel(h.quality)}`}
-                    </span>
-                    <span className="truncate">{ago(h.at)}</span>
-                  </p>
-                </div>
-                <Button variant="ghost" size="icon" className="shrink-0 rounded-full" onClick={() => again(h)} disabled={busy} aria-label={`Retélécharger ${h.title}`} title="Retélécharger">
-                  <RotateCw />
-                </Button>
-                <Button
-                  variant="ghost" size="icon" className="shrink-0 rounded-full text-muted-foreground"
-                  onClick={() => updateHistory(history.filter((x) => x !== h))}
-                  aria-label={`Retirer ${h.title} de l’historique`} title="Retirer"
-                >
-                  <Trash2 />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+        {/* History */}
+        {history.length > 0 && (
+          <section aria-labelledby="history-title" className="mt-16">
+            <div className="flex items-center justify-between">
+              <h2 id="history-title" className="text-sm font-semibold">Récents</h2>
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => updateHistory([])}>Tout effacer</Button>
+            </div>
+            <ul className="mt-2 overflow-hidden rounded-2xl border bg-card">
+              {history.map((h) => (
+                <li key={`${h.url}-${h.format}`} className="group flex items-center gap-3 border-b px-3 py-2.5 last:border-b-0">
+                  <Thumb src={h.thumbnail} className="w-16" />
+                  <div className="min-w-0 flex-1">
+                    <a href={h.url} target="_blank" rel="noreferrer" className="line-clamp-1 text-sm font-medium hover:underline">{h.title}</a>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {h.format === "mp3" ? "MP3" : `MP4 ${qLabel(h.quality)}`}, {ago(h.at)}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => again(h)} disabled={busy} aria-label={`Retélécharger ${h.title}`} title="Retélécharger">
+                    <RotateCw />
+                  </Button>
+                  <Button
+                    variant="ghost" size="icon" className="text-muted-foreground sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                    onClick={() => updateHistory(history.filter((x) => x !== h))}
+                    aria-label={`Retirer ${h.title} de l’historique`} title="Retirer"
+                  >
+                    <Trash2 />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </main>
 
-      <footer className="mt-auto pt-16 text-sm text-muted-foreground">
-        <p className="max-w-xl">Pour un usage personnel : respecte les droits des auteurs et les conditions des plateformes.</p>
+      <footer className="relative mx-auto max-w-2xl px-4 pb-8 text-center text-xs text-muted-foreground">
+        Pour un usage personnel. Respecte les droits des auteurs et les conditions des plateformes.
       </footer>
       <Toaster position="bottom-center" />
-    </main>
+    </div>
   )
 }
