@@ -32,7 +32,11 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
-use axum::http::{HeaderValue, Method};
+use axum::{
+    extract::Request,
+    http::{HeaderMap, HeaderValue, Method},
+    middleware::{self, Next},
+};
 use tower_http::{
     cors::CorsLayer,
     services::{ServeDir, ServeFile},
@@ -301,12 +305,46 @@ mod serde_json_lite {
     }
 }
 
+struct Guard {
+    origins: Vec<String>,
+    hosts: Vec<String>,
+}
+
+/// CORS only hides responses; this stops other sites from *triggering* work on this machine.
+/// Rejects foreign Origins, cross-site requests without Origin (e.g. <img src>), and DNS-rebinding Hosts.
+fn caller_allowed(g: &Guard, headers: &HeaderMap) -> bool {
+    let get = |k: &str| headers.get(k).and_then(|v| v.to_str().ok());
+    let host_ok = get("host").is_some_and(|h| g.hosts.iter().any(|x| x == h));
+    let origin_ok = match get("origin") {
+        Some(o) => g.origins.iter().any(|x| x == o),
+        None => !matches!(get("sec-fetch-site"), Some("cross-site" | "same-site")),
+    };
+    host_ok && origin_ok
+}
+
+async fn check_caller(State(g): State<Arc<Guard>>, req: Request, next: Next) -> Response {
+    if caller_allowed(&g, req.headers()) {
+        next.run(req).await
+    } else {
+        (StatusCode::FORBIDDEN, "Origine non autorisée").into_response()
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let dist = std::env::var("DIST").unwrap_or_else(|_| "dist".into());
     let addr = std::env::var("ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into()); // local only by default
     // Only the hosted front (GitHub Pages) may call this local API from the browser; other sites can't read it.
     let origin = std::env::var("ALLOWED_ORIGIN").unwrap_or_else(|_| "https://mpjunot.github.io".into());
+    let port = addr.rsplit(':').next().unwrap_or("8787").to_string();
+    let guard = Arc::new(Guard {
+        origins: vec![origin.clone(), format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}"), "http://localhost:5173".into()],
+        // ponytail: loopback hosts only; set PUBLIC_HOST if this ever runs behind a real domain
+        hosts: [format!("127.0.0.1:{port}"), format!("localhost:{port}")]
+            .into_iter()
+            .chain(std::env::var("PUBLIC_HOST").ok())
+            .collect(),
+    });
     let cors = CorsLayer::new()
         .allow_origin(origin.parse::<HeaderValue>().expect("ALLOWED_ORIGIN invalide"))
         .allow_methods([Method::GET])
@@ -315,7 +353,8 @@ async fn main() {
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/info", get(info))
         .route("/api/job", get(job))
-        .route("/api/file/{id}", get(file))
+        .route_layer(middleware::from_fn_with_state(guard, check_caller)) // info + job only
+        .route("/api/file/{id}", get(file)) // id is an unguessable uuid only readable by allowed callers
         .layer(cors)
         .fallback_service(ServeDir::new(&dist).fallback(ServeFile::new(format!("{dist}/index.html"))))
         .with_state(Shared::default());
@@ -349,6 +388,21 @@ mod tests {
         assert_eq!(a[a.len() - 2], "--");
         assert!(a.contains(&"res:720,vcodec:h264,acodec:aac".to_string()));
         assert!(build_args(&validate(&q("https://x.y", "mp3", None)).unwrap()).contains(&"-x".to_string()));
+    }
+
+    #[test]
+    fn caller_guard() {
+        let g = Guard { origins: vec!["https://mpjunot.github.io".into()], hosts: vec!["127.0.0.1:8787".into()] };
+        let h = |pairs: &[(&'static str, &'static str)]| {
+            let mut m = HeaderMap::new();
+            for (k, v) in pairs { m.insert(*k, HeaderValue::from_static(v)); }
+            m
+        };
+        assert!(caller_allowed(&g, &h(&[("host", "127.0.0.1:8787")]))); // curl / same-origin
+        assert!(caller_allowed(&g, &h(&[("host", "127.0.0.1:8787"), ("origin", "https://mpjunot.github.io")])));
+        assert!(!caller_allowed(&g, &h(&[("host", "127.0.0.1:8787"), ("origin", "https://evil.example")])));
+        assert!(!caller_allowed(&g, &h(&[("host", "127.0.0.1:8787"), ("sec-fetch-site", "cross-site")]))); // <img src>
+        assert!(!caller_allowed(&g, &h(&[("host", "evil.example:8787")]))); // DNS rebinding
     }
 
     #[test]
