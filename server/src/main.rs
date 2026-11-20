@@ -36,12 +36,18 @@ use tower_http::services::{ServeDir, ServeFile};
 
 const QUALITIES: [&str; 6] = ["360", "480", "720", "1080", "1440", "2160"];
 const MAX_JOBS: usize = 3; // ponytail: global cap, per-IP queue if this ever goes public
+const MAX_PREVIEWS: usize = 4; // ponytail: global cap, per-IP limit if exposed publicly
 const FILE_TTL: Duration = Duration::from_secs(600);
 
-#[derive(Default)]
 struct App {
     files: Mutex<HashMap<String, PathBuf>>, // id -> file inside its own temp dir
     running: AtomicUsize,
+    previews: tokio::sync::Semaphore, // caps concurrent /api/info yt-dlp processes
+}
+impl Default for App {
+    fn default() -> Self {
+        Self { files: Mutex::default(), running: AtomicUsize::new(0), previews: tokio::sync::Semaphore::new(MAX_PREVIEWS) }
+    }
 }
 type Shared = Arc<App>;
 
@@ -108,7 +114,10 @@ fn ev(name: &str, data: impl serde_json_lite::Json) -> Result<Event, Infallible>
 }
 
 /// Preview metadata: {title, thumbnail, duration, uploader, extractor_key}, straight from yt-dlp's JSON.
-async fn info(Query(q): Query<JobQuery>) -> Response {
+async fn info(State(app): State<Shared>, Query(q): Query<JobQuery>) -> Response {
+    let Ok(_slot) = app.previews.try_acquire() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "Serveur occupé, réessaie dans un instant").into_response();
+    };
     let job = match validate(&JobQuery { format: Some("mp3".into()), ..q }) {
         Ok(j) => j,
         Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
